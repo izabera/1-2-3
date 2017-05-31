@@ -1,3 +1,5 @@
 try it!
 
 telnet arin.ga 44444
+
+run it under netcat or inetd or whatever

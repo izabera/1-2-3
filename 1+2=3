@@ -25,6 +25,8 @@ printf %s "${telnet[IAC]}${telnet[DO]}${telnet[LINEMODE]}" \
           "${telnet[IAC]}${telnet[WILL]}${telnet[ECHO]}"
 # ignore telnet initialization junk
 slurp () while read -t.1 -rn1 -d ''; do :; done
+# must wait to read at least 1 byte
+read -rn1
 slurp
 
 
