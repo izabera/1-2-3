@@ -1,0 +1,122 @@
+#!/bin/bash
+
+LANG=C
+declare -A telnet=(
+  [IAC]=$'\377'
+  [DONT]=$'\376'
+  [DO]=$'\375'
+  [WONT]=$'\374'
+  [WILL]=$'\373'
+  [LINEMODE]=$'\042'
+  [ECHO]=$'\1'
+)
+declare -A term=(
+  [clear]=$'\e[H\e[2J'
+  [cup00]=$'\e[1;1H'
+  [smcup]=$'\e[?1049h'
+  [rmcup]=$'\e[?1049l'
+  [civis]=$'\e[?25l'
+  [cnorm]=$'\e[?25h'
+  [el]=$'\e[K'
+)
+
+# set up telnet
+printf %s "${telnet[IAC]}${telnet[DO]}${telnet[LINEMODE]}" \
+          "${telnet[IAC]}${telnet[WILL]}${telnet[ECHO]}"
+# ignore telnet initialization junk
+slurp () while read -t.1 -rn1 -d ''; do :; done
+slurp
+
+
+
+init () { printf %s "${term[smcup]}${term[civis]}"; }
+cleanup () { printf %s "${term[rmcup]}${term[cnorm]}"; }
+
+init
+trap 'cleanup; printf "your final score is %d\r\n" "$score"' exit
+
+getanswer() {
+  for (( time = 30; time > 0; time -- )) do
+    printf -v bar '%*s' "$((2*time))"
+    printf '[%60s]\r' "${bar//  /==}"
+    read -t.1 -rsn1 && return 0
+  done
+  return 1
+}
+
+getword() {
+  word=
+  while (( ${#word} < 20 )); do
+    printf '\r>%s%s' "$word" "${term[el]}"
+    read -rn1
+    if [[ $REPLY = [$'\177\b'] ]]; then
+      word=${word%?}
+    elif [[ $REPLY = [a-zA-Z0-9] ]]; then
+      word+=$REPLY
+    elif [[ $REPLY = [$'\r\n'] ]]; then
+      break
+    fi
+  done
+  slurp
+  [[ $word ]] && printf 'your name is %s\r\n' "$word"
+}
+
+map=(1 2 3 -1 -2 -3)
+genexpr() {
+  # just generate random expressions and discard them if their result is not in [1,2,3]
+  # pick first arg from [1,2,3]
+  # pick rest from [1,2,3,-1,-2,-3]
+  while :; do
+    (( str = sum = args[0] = RANDOM % 3 + 1 ))
+    for (( i = 1; i < $1; i++ )) do
+      (( args[i] = map[RANDOM % 6], sum += args[i] ))
+      printf -v str "%s %+d" "$str" "${args[i]}"
+    done
+    [[ $str != $old ]] && (( sum > 0 && sum < 4 )) && break
+  done
+  old=$str
+  str=${str//-/- }
+  str="${str//+/+ } = "
+}
+
+gameover() {
+  printf '\n\n\rGAME OVER\r\n\n'
+  sleep 2
+  i=0 j=0
+  mapfile -t scores < scores
+  if (( score > ${scores[9]% *} )); then
+    printf 'new high score!  enter your name (20 char max):\r\n'
+    getword
+    if [[ $word ]]; then
+      # re read the file to minimize race conditions
+      mapfile -t scores < scores
+      printf '%s\n' "${scores[@]}" "$score $word" | sort -rn | head > scores
+    fi
+  fi
+  exit
+}
+
+printf '%s\n\n\n\n\nhigh scores:\r\n' "${term[clear]}"
+while read -r score name; do
+  printf '%20s  %5d\r\n' "$name" "$score"
+done < scores
+
+for sec in 3 2 1; do
+  printf '%sHow to play: type the right answer (1 2 or 3)\r\n' "${term[cup00]}"
+  printf 'We start in %d seconds...' "$sec"
+  sleep 1
+done
+printf %s "${term[clear]}"
+
+
+yesno=(WRONG CORRECT) score=0
+while :; do
+  genexpr "$((question++/4 + 2))"
+  printf '%sscore: %d\r\n\n%s?             \r\n\n' "${term[cup00]}" "$score" "$str"
+  getanswer || gameover
+  [[ $REPLY = [123] ]] || gameover
+  printf '%sscore: %d\r\n\n%s%s %s!\r\n\n' "${term[cup00]}" "$score" "$str" "$REPLY" "${yesno[sum == REPLY]}"
+  sleep 1
+  (( sum == REPLY )) || gameover
+  (( score += time + question ))
+done
